@@ -5,105 +5,169 @@ A Python-based processor specifically designed to handle MBOX files exported fro
 ## Features
 
 - **Google Takeout Optimized**: Specifically handles Google's MBOX format and custom headers
-- **Attachment Preservation**: Extracts and saves attachments with original filenames and content types
-- **Content Conversion**: Converts HTML email content to clean plain text while preserving formatting
+- **Attachment Preservation**: Extracts and saves attachments with consistent naming
+- **Content Conversion**: Converts HTML email content to clean plain text
 - **Metadata Preservation**: Maintains all original email headers and metadata
 - **Error Resilience**: Gracefully handles malformed messages and continues processing
 - **Progress Reporting**: Provides detailed progress updates during processing
 
-## Prerequisites
-
-- Python 3.8+
-- Required Python packages (will be installed automatically):
-  - `email-validator`
-  - `python-magic` (for better file type detection)
-
 ## Installation
 
-1. Clone this repository or download the script
-2. Install the required dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-   
-   On Linux, you might also need to install:
-   ```bash
-   sudo apt-get install libmagic1  # For Ubuntu/Debian
-   # OR
-   sudo yum install file-devel      # For CentOS/RHEL
-   ```
+### Prerequisites
+
+- Python 3.8+
+- System dependencies (Linux):
+  ```bash
+  # For Ubuntu/Debian
+  sudo apt-get install libmagic1
+  
+  # For CentOS/RHEL
+  sudo yum install file-devel
+  ```
+
+### Using pip
+
+```bash
+# Install from source
+git clone https://github.com/yourusername/mbox-processor.git
+cd mbox-processor
+pip install -e .
+
+# Or install directly
+pip install git+https://github.com/yourusername/mbox-processor.git
+```
 
 ## Usage
 
 ### Command Line
 
 ```bash
-python mbox_processor.py path/to/your/Inbox.mbox [options]
+mbox-processor path/to/your/Inbox.mbox [options]
+```
+
+Or:
+
+```bash
+python -m mbox_processor path/to/your/Inbox.mbox [options]
 ```
 
 ### Options
 
-- `-o, --output-dir`: Directory to save attachments (default: './attachments')
-- `--output-mbox`: Path to save the processed MBOX file (default: 'output.mbox')
-- `--max-messages`: Maximum number of messages to process (default: 0 for all)
-- `--verbose`: Enable verbose output
+```
+positional arguments:
+  input_file            Path to the input MBOX file
 
-Example:
-```bash
-python mbox_processor.py Inbox.mbox -o ./email_attachments --output-mbox processed.mbox --max-messages 1000
+options:
+  -h, --help            show this help message and exit
+  -o OUTPUT_DIR, --output-dir OUTPUT_DIR
+                        Directory to save extracted attachments (default: 'attachments')
+  --output-mbox OUTPUT_MBOX
+                        Path to save the processed MBOX file (default: 'output.mbox')
+  -m MAX_MESSAGES, --max-messages MAX_MESSAGES
+                        Maximum number of messages to process (0 for all) (default: 0)
+  -v, --verbose         Enable verbose output (default: False)
+  --log-file LOG_FILE   Path to the log file (default: 'mbox_processor.log')
+  --version             show program's version number and exit
 ```
 
-## Google Takeout MBOX Format
+### Example
 
-This processor is specifically designed to handle Google Takeout's MBOX format, which includes:
+```bash
+# Process a file with default settings
+mbox-processor Inbox.mbox
 
-- Custom Google headers (X-GM-THRID, X-Gmail-Labels, etc.)
-- Special handling for Google-specific content (Drive links, Meet recordings)
-- Proper character encoding for international content
-- Preservation of Gmail labels and threading information
+# Specify custom output directories and limit to 1000 messages
+mbox-processor Inbox.mbox \
+    --output-dir ./my_attachments \
+    --output-mbox ./processed/emails.mbox \
+    --max-messages 1000 \
+    --verbose
+```
 
 ## Output Structure
 
 ```
 .
-├── attachments/               # Extracted attachments
-│   └── YYYY-MM-DD/            # Date-based subdirectories
-│       └── sender-email/      # Sender-based subdirectories
-│           ├── filename.pdf
-│           └── ...
-└── processed.mbox             # Processed MBOX file with attachment notices
+├── attachments/                     # Extracted attachments
+│   ├── sender@example.com/         # Sender's email as folder name
+│   │   ├── 2025-06-30_sender@example.com_12345.pdf
+│   │   └── 2025-06-30_sender@example.com_67890.jpg
+│   └── another.sender@example.com/
+│       └── 2025-06-29_another.sender@example.com_54321.pdf
+└── output.mbox                     # Processed MBOX file with attachment notices
 ```
 
-## Processing Details
+### Attachment Naming Convention
 
-1. **Message Parsing**:
-   - Uses Python's built-in `email` and `mailbox` modules
-   - Handles both standard and quoted-printable/base64 encoded content
-   - Preserves all original headers and metadata
+- **Folder Name**: Sender's full email address
+  - Example: `john.doe@example.com`
+  - Special characters (except @) are replaced with `_`
+  - @ symbol is kept as is
 
-2. **Attachment Handling**:
-   - Extracts all MIME attachments
-   - Preserves original filenames and content types
-   - Saves attachments in an organized directory structure
-   - Handles large files and binary content properly
+- **File Name Format**: `{YYYY-MM-DD}_{sender_email}_{random_5_digits}.{ext}`
+  - `YYYY-MM-DD`: Date email was received
+  - `sender_email`: Full sender's email (matches folder name)
+  - `random_5_digits`: Random number between 10000-99999 (ensures uniqueness)
+  - `ext`: Original file extension (in lowercase)
 
-3. **Content Processing**:
-   - Converts HTML to clean plain text when needed
-   - Maintains proper formatting and line breaks
-   - Handles various character encodings
+Example: `2025-06-30_john.doe@example.com_12345.pdf`
 
-## Error Handling
+## Development
 
-- Errors are logged to `processing_errors.log`
-- The processor continues with the next message if an error occurs
-- A summary of errors is displayed at the end of processing
+### Setup
 
-## Performance
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/mbox-processor.git
+   cd mbox-processor
+   ```
 
-- Processes messages in a memory-efficient manner
-- Handles large MBOX files (tested with 10GB+)
-- Provides progress updates during long-running operations
+2. Create and activate a virtual environment:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+
+3. Install development dependencies:
+   ```bash
+   pip install -e ".[dev]"
+   ```
+
+### Running Tests
+
+```bash
+# Run all tests
+pytest
+
+# Run with coverage
+pytest --cov=mbox_processor tests/
+
+# Or
+make test
+```
+
+### Code Style
+
+This project uses:
+- Black for code formatting
+- isort for import sorting
+- flake8 for linting
+- mypy for type checking
+
+```bash
+# Format code
+black .
+
+# Sort imports
+isort .
+
+# Run linter
+flake8
+
+# Run type checker
+mypy .
+```
 
 ## License
 
-MIT
+MIT License - see the [LICENSE](LICENSE) file for details.
