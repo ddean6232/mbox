@@ -77,7 +77,7 @@ class AttachmentHandler:
         # Sanitize the email for use in a filename
         safe_email = (
             sender_email
-            .replace('@', '_at_')
+            .replace('@', '_')  # Replace @ with single underscore
             .replace('.', '_')
             .replace('+', '_')
         )
