@@ -26,14 +26,33 @@ class Attachment:
     
     @property
     def extension(self) -> str:
-        """Get the file extension in lowercase."""
-        if not self.filename:
-            # Try to determine from content type
-            ext = self.content_type.split('/')[-1].lower()
-            return f".{ext}" if ext else ""
+        """Get the file extension in lowercase.
         
+        Returns:
+            File extension including the dot (e.g., '.pdf'), or empty string if no extension
+        """
+        if not self.filename:
+            return ""
+            
         # Get extension from filename
         return Path(self.filename).suffix.lower()
+        
+    def has_extension(self) -> bool:
+        """Check if the attachment has a file extension.
+        
+        Returns:
+            True if the filename has an extension, False otherwise
+        """
+        if not self.filename:
+            return False
+            
+        # Check if there's at least one dot and the part after the last dot is 1-10 chars long
+        parts = self.filename.rsplit('.', 1)
+        if len(parts) < 2:
+            return False
+            
+        extension = parts[1].lower()
+        return 1 <= len(extension) <= 10 and extension.isalnum()
     
     @property
     def safe_filename(self) -> str:
@@ -79,13 +98,41 @@ class Attachment:
         if not all([self.email_date, self.sender_email]):
             raise ValueError("email_date and sender_email must be set before saving")
         
+        # Sanitize sender email for directory name
+        safe_sender = (
+            self.sender_email
+            .replace('@', '_')  # Replace @ with single underscore
+            .replace('.', '_')
+            .replace('+', '_')
+        )
+        
         # Create sender directory
-        sender_dir = Path(base_dir) / self.sender_email
+        sender_dir = Path(base_dir) / safe_sender
         sender_dir.mkdir(parents=True, exist_ok=True)
         
         # Generate safe filename
         filename = self.safe_filename
         filepath = sender_dir / filename
+        
+        # Handle filename collisions
+        counter = 1
+        while filepath.exists():
+            # If file exists, add a counter before the extension
+            name_parts = filepath.stem.rsplit('_', 1)
+            if len(name_parts) > 1 and name_parts[1].isdigit():
+                # If filename already has a counter, increment it
+                base_name = name_parts[0]
+                counter = int(name_parts[1]) + 1
+            else:
+                # Otherwise add a counter
+                base_name = filepath.stem
+                
+            new_filename = f"{base_name}_{counter}{filepath.suffix}"
+            filepath = filepath.with_name(new_filename)
+            counter += 1
+        
+        # Ensure parent directory exists
+        filepath.parent.mkdir(parents=True, exist_ok=True)
         
         # Write the file
         with open(filepath, 'wb') as f:

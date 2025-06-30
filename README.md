@@ -6,10 +6,12 @@ A Python-based processor specifically designed to handle MBOX files exported fro
 
 - **Google Takeout Optimized**: Specifically handles Google's MBOX format and custom headers
 - **Attachment Preservation**: Extracts and saves attachments with consistent naming
+- **Post-Processing**: Automatically detects and adds file extensions to extensionless files
 - **Content Conversion**: Converts HTML email content to clean plain text
 - **Metadata Preservation**: Maintains all original email headers and metadata
 - **Error Resilience**: Gracefully handles malformed messages and continues processing
 - **Progress Reporting**: Provides detailed progress updates during processing
+- **Temporary File Handling**: Optionally preserves temporary files for debugging
 
 ## Installation
 
@@ -67,7 +69,9 @@ options:
                         Maximum number of messages to process (0 for all) (default: 0)
   -v, --verbose         Enable verbose output (default: False)
   --log-file LOG_FILE   Path to the log file (default: 'mbox_processor.log')
-  --version             show program's version number and exit
+  --Pp, --post-process  Enable post-processing of files without extensions (default: False)
+  --keep-temp          Keep temporary directory after processing (for debugging) (default: False)
+  --version            Show program's version number and exit
 ```
 
 ### Example
@@ -76,12 +80,18 @@ options:
 # Process a file with default settings
 mbox-processor Inbox.mbox
 
-# Specify custom output directories and limit to 1000 messages
+# Basic processing with custom output
 mbox-processor Inbox.mbox \
     --output-dir ./my_attachments \
     --output-mbox ./processed/emails.mbox \
     --max-messages 1000 \
     --verbose
+
+# Enable post-processing of files without extensions
+mbox-processor Inbox.mbox --Pp
+
+# Keep temporary files for debugging
+mbox-processor Inbox.mbox --Pp --keep-temp
 ```
 
 ## Output Structure
@@ -89,28 +99,47 @@ mbox-processor Inbox.mbox \
 ```
 .
 ├── attachments/                     # Extracted attachments
-│   ├── sender@example.com/         # Sender's email as folder name
-│   │   ├── 2025-06-30_sender@example.com_12345.pdf
-│   │   └── 2025-06-30_sender@example.com_67890.jpg
-│   └── another.sender@example.com/
-│       └── 2025-06-29_another.sender@example.com_54321.pdf
+│   ├── temp/                       # Temporary files without extensions (if --keep-temp is used)
+│   │   ├── sender_example_com/
+│   │   │   └── 2025-06-30_sender_example_com_12345
+│   │   └── another_sender_example_com/
+│   │       └── 2025-06-29_another_sender_example_com_54321
+│   ├── sender_example_com/         # Sender's email with _ instead of special chars
+│   │   ├── 2025-06-30_sender_example_com_12345.pdf
+│   │   └── 2025-06-30_sender_example_com_67890.jpg
+│   └── another_sender_example_com/
+│       └── 2025-06-29_another_sender_example_com_54321.pdf
 └── output.mbox                     # Processed MBOX file with attachment notices
 ```
 
-### Attachment Naming Convention
+### Attachment Naming and Processing
 
-- **Folder Name**: Sender's full email address
-  - Example: `john.doe@example.com`
-  - Special characters (except @) are replaced with `_`
-  - @ symbol is kept as is
+#### Naming Convention
 
-- **File Name Format**: `{YYYY-MM-DD}_{sender_email}_{random_5_digits}.{ext}`
+- **Folder Name**: Sender's email with special characters replaced
+  - Example: `john_doe_example_com`
+  - All special characters including `.`, `@`, and `+` are replaced with `_`
+  - Example: `john.doe+test@example.com` becomes `john_doe_test_example_com`
+
+- **File Name Format**: `{YYYY-MM-DD}_{sanitized_sender_email}_{random_5_digits}.{ext}`
   - `YYYY-MM-DD`: Date email was received
-  - `sender_email`: Full sender's email (matches folder name)
+  - `sanitized_sender_email`: Sender's email with special characters replaced by `_`
   - `random_5_digits`: Random number between 10000-99999 (ensures uniqueness)
   - `ext`: Original file extension (in lowercase)
 
-Example: `2025-06-30_john.doe@example.com_12345.pdf`
+Example: `2025-06-30_john_doe_example_com_12345.pdf`
+
+#### Post-Processing
+
+When the `--Pp` flag is used, the processor will:
+
+1. Save files without extensions to a temporary directory
+2. Attempt to detect their MIME type using `python-magic`
+3. Add the appropriate extension based on the detected type
+4. Move the file to the correct sender's directory
+5. Keep files with unknown types in the temp directory
+
+**Note**: The temporary directory is automatically cleaned up unless the `--keep-temp` flag is used.
 
 ## Development
 

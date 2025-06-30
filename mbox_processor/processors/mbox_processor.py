@@ -23,7 +23,11 @@ class MboxProcessor:
             config: Configuration object
         """
         self.config = config
-        self.attachment_handler = AttachmentHandler(str(config.attachments_dir))
+        self.attachment_handler = AttachmentHandler(
+            base_dir=str(config.attachments_dir),
+            post_process=config.post_process,
+            keep_temp=config.keep_temp
+        )
         self.content_processor = ContentProcessor(keep_html=False)
         
         # Create output directory if it doesn't exist
@@ -36,22 +40,102 @@ class MboxProcessor:
             'verbose': config.verbose
         })
     
+    def _init_stats(self) -> dict:
+        """Initialize the statistics dictionary.
+        
+        Returns:
+            Dictionary containing initialized statistics
+        """
+        return {
+            'total_messages': 0,
+            'processed_messages': 0,
+            'failed_messages': 0,
+            'total_attachments': 0,
+            'saved_attachments': 0,
+            'post_processed': 0,  # Number of files post-processed
+            'attachments_by_type': {},
+            'senders': {},
+            'start_time': datetime.utcnow(),
+            'end_time': None,
+            'duration_seconds': None,
+            'attachments_size_bytes': 0,
+            'messages_with_attachments': 0,
+            'messages_processed_per_second': 0.0
+        }
+
+    def _format_size(self, size_bytes: int) -> str:
+        """Format file size in a human-readable format.
+        
+        Args:
+            size_bytes: Size in bytes
+            
+        Returns:
+            Formatted size string (e.g., '1.2 MB')
+        """
+        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+            if size_bytes < 1024.0:
+                if unit == 'B':
+                    return f"{int(size_bytes)} {unit}"
+                return f"{size_bytes:.1f} {unit}"
+            size_bytes /= 1024.0
+        return f"{size_bytes:.1f} PB"
+
+    def _print_stats(self, stats: dict) -> None:
+        """Print processing statistics in a formatted way.
+        
+        Args:
+            stats: Dictionary containing processing statistics
+        """
+        duration = stats['duration_seconds']
+        mins, secs = divmod(duration, 60)
+        hours, mins = divmod(mins, 60)
+        
+        print("\n" + "="*80)
+        print("MBOX PROCESSING SUMMARY".center(80))
+        print("="*80)
+        
+        # Basic info
+        print(f"\n{'Total Messages:':<25} {stats['total_messages']:,}")
+        print(f"{'Processed Messages:':<25} {stats['processed_messages']:,}")
+        print(f"{'Failed Messages:':<25} {stats['failed_messages']:,}")
+        print(f"{'Messages with Attachments:':<25} {stats['messages_with_attachments']:,}")
+        
+        # Timing
+        print(f"\n{'Start Time:':<25} {stats['start_time'].strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"{'End Time:':<25} {stats['end_time'].strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"{'Duration:':<25} {int(hours):02d}:{int(mins):02d}:{int(secs):02d}")
+        print(f"{'Messages/second:':<25} {stats.get('messages_processed_per_second', 0):.2f}")
+        
+        # Attachments
+        print(f"\n{'Total Attachments:':<25} {stats['total_attachments']:,}")
+        print(f"{'Saved Attachments:':<25} {stats['saved_attachments']:,}")
+        if stats.get('post_processed', 0) > 0:
+            print(f"{'Post-processed:':<25} {stats['post_processed']:,} files")
+        print(f"{'Total Size:':<25} {self._format_size(stats['attachments_size_bytes'])}")
+        
+        # Top attachment types
+        if stats['attachments_by_type']:
+            print("\nAttachment Types:")
+            for ext, count in sorted(stats['attachments_by_type'].items(), 
+                                  key=lambda x: x[1], reverse=True)[:5]:
+                print(f"  {ext.upper() if ext else 'UNKNOWN':<8} {count:,}")
+        
+        # Top senders
+        if stats['senders']:
+            print("\nTop Senders:")
+            for sender, count in sorted(stats['senders'].items(), 
+                                     key=lambda x: x[1], reverse=True)[:5]:
+                print(f"  {sender:<40} {count:,} messages")
+        
+        print("\n" + "="*80 + "\n")
+
     def process(self) -> dict:
         """Process the MBOX file and return statistics.
         
         Returns:
             Dictionary containing processing statistics
         """
-        stats = {
-            'total_messages': 0,
-            'processed_messages': 0,
-            'failed_messages': 0,
-            'total_attachments': 0,
-            'saved_attachments': 0,
-            'start_time': datetime.utcnow().isoformat(),
-            'end_time': None,
-            'duration_seconds': None
-        }
+        stats = self._init_stats()
         
         try:
             # Open the MBOX file
@@ -70,14 +154,41 @@ class MboxProcessor:
                 
                 try:
                     # Process the message
-                    self._process_message(message, i + 1)
+                    attachments_saved = self._process_message(message, i + 1)
                     stats['processed_messages'] += 1
                     
+                    # Update sender stats
+                    from_addr = message.get('from', 'unknown@unknown.com')
+                    stats['senders'][from_addr] = stats['senders'].get(from_addr, 0) + 1
+                    
+                    # Update attachment stats
+                    if attachments_saved:
+                        stats['messages_with_attachments'] += 1
+                        stats['saved_attachments'] += len(attachments_saved)
+                        
+                        for att in attachments_saved:
+                            # Update attachment type stats
+                            ext = Path(att).suffix.lower()
+                            stats['attachments_by_type'][ext] = stats['attachments_by_type'].get(ext, 0) + 1
+                            
+                            # Update total size
+                            try:
+                                stats['attachments_size_bytes'] += Path(att).stat().st_size
+                            except (OSError, AttributeError):
+                                pass
+                    
                     # Log progress
-                    if (i + 1) % 100 == 0:
-                        logger.info("Processed %d/%d messages", 
-                                  i + 1, min(stats['total_messages'], 
-                                           self.config.max_messages or float('inf')))
+                    if (i + 1) % 100 == 0 or (i + 1) == min(stats['total_messages'], 
+                                                          self.config.max_messages or float('inf')):
+                        elapsed = (datetime.utcnow() - stats['start_time']).total_seconds()
+                        rate = (i + 1) / elapsed if elapsed > 0 else 0
+                        logger.info(
+                            "Processed %d/%d messages (%.1f msg/s, %d attachments)",
+                            i + 1, 
+                            min(stats['total_messages'], self.config.max_messages or float('inf')),
+                            rate,
+                            stats['saved_attachments']
+                        )
                 
                 except Exception as e:
                     stats['failed_messages'] += 1
@@ -90,21 +201,40 @@ class MboxProcessor:
             raise
         
         finally:
-            # Calculate statistics
-            stats['end_time'] = datetime.utcnow().isoformat()
-            duration = datetime.fromisoformat(stats['end_time']) - \
-                      datetime.fromisoformat(stats['start_time'])
-            stats['duration_seconds'] = duration.total_seconds()
+            # Calculate final statistics
+            stats['end_time'] = datetime.utcnow()
+            stats['duration_seconds'] = (stats['end_time'] - stats['start_time']).total_seconds()
             
-            logger.info("Processing complete. Statistics: %s", stats)
+            if stats['duration_seconds'] > 0:
+                stats['messages_processed_per_second'] = stats['processed_messages'] / stats['duration_seconds']
+            
+            # Post-process attachments if enabled
+            if self.config.post_process:
+                logger.info("Starting post-processing of attachments...")
+                processed = self.attachment_handler.post_process_attachments()
+                stats['post_processed'] = len(processed)
+                logger.info("Post-processing complete. Processed %d files", len(processed))
+                
+                # Update stats with post-processing results
+                for orig_path, new_path in processed.items():
+                    logger.debug("Post-processed: %s -> %s", orig_path, new_path)
+            
+            # Print final statistics
+            self._print_stats(stats)
+            logger.info("Processing complete. Processed %d messages with %d attachments",
+                       stats['processed_messages'], stats['saved_attachments'])
+            
             return stats
     
-    def _process_message(self, message: mailbox.mboxMessage, message_num: int) -> None:
+    def _process_message(self, message: mailbox.mboxMessage, message_num: int) -> List[str]:
         """Process a single email message.
         
         Args:
             message: The email message to process
             message_num: The message number (for logging)
+            
+        Returns:
+            List of paths to saved attachments
         """
         try:
             # Parse the message
@@ -116,12 +246,17 @@ class MboxProcessor:
             email_msg = self._create_email_message(message, parsed)
             
             # Save attachments
+            saved_paths = []
             if email_msg.attachments:
                 saved_paths = self.attachment_handler.save_attachments(email_msg)
-                logger.info("Saved %d attachments for message %d", 
-                           len(saved_paths), message_num)
+                if saved_paths:
+                    logger.debug("Saved %d attachments for message %d: %s", 
+                               len(saved_paths), message_num, 
+                               ", ".join(str(p) for p in saved_paths))
             
             # TODO: Update MBOX file with processed content
+            
+            return saved_paths
             
         except Exception as e:
             logger.error("Error processing message %d: %s", message_num, str(e), 

@@ -72,6 +72,19 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         version=f'%(prog)s {__version__}'
     )
     
+    parser.add_argument(
+        '--Pp',
+        action='store_true',
+        help='Enable post-processing of files without extensions to detect file types and add appropriate extensions',
+        dest='post_process'
+    )
+    
+    parser.add_argument(
+        '--keep-temp',
+        action='store_true',
+        help='Keep temporary directory after processing (useful for debugging)'
+    )
+    
     return parser.parse_args(args)
 
 def main() -> int:
@@ -97,7 +110,9 @@ def main() -> int:
             output_dir=args.output_dir,
             output_mbox=args.output_mbox,
             max_messages=args.max_messages,
-            verbose=args.verbose
+            verbose=args.verbose,
+            post_process=args.post_process,
+            keep_temp=args.keep_temp
         )
         
         try:
