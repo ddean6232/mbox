@@ -1,0 +1,10 @@
+# Core Dependencies
+email-validator>=2.0.0
+python-magic>=0.4.27
+
+# Development Dependencies
+pytest>=7.0.0
+black>=22.0.0
+isort>=5.10.0
+flake8>=4.0.0
+mypy>=0.910
