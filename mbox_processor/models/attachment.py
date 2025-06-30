@@ -1,11 +1,12 @@
 """Attachment model for the MBOX processor."""
 from dataclasses import dataclass
+import random
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, Union, BinaryIO
 import hashlib
 import os
-import random
 
 @dataclass
 class Attachment:
@@ -56,20 +57,38 @@ class Attachment:
     
     @property
     def safe_filename(self) -> str:
-        """Generate a safe filename with the specified format.
+        """Generate a safe filename for the attachment.
         
-        Format: {YYYY-MM-DD}_{sender_email}_{random_5_digits}{ext}
+        Returns:
+            A safe filename in the format: {YYYY-MM-DD}_{sanitized_sender_email}_{random_5_digits}.{ext}
+            Example: 2025-06-30_john_doe_example_com_12345.pdf
+            
+        Raises:
+            ValueError: If email_date or sender_email is not set
         """
         if not all([self.email_date, self.sender_email]):
             raise ValueError("email_date and sender_email must be set")
-        
-        # Sanitize sender email for filename
+            
+        # Extract email from format: "John Doe <john@example.com>"
+        email_match = re.search(r'<([^>]+)>', self.sender_email)
+        if email_match:
+            sender = email_match.group(1)  # Extract email from <>
+        else:
+            sender = self.sender_email  # Use as is if no <>
+            
+        # Sanitize sender email
         safe_email = (
-            self.sender_email
-            .replace('@', '_')  # Replace @ with single underscore
+            sender
+            .split('@')[0]  # Take only the part before @
             .replace('.', '_')
             .replace('+', '_')
+            .lower()  # Ensure consistent case
         )
+        
+        # Get domain if available
+        if '@' in sender:
+            domain = sender.split('@')[1].split('>')[0]  # Handle trailing > if present
+            safe_email = f"{safe_email}_{domain.replace('.', '_')}"
         
         # Generate random 5-digit number
         random_suffix = str(random.randint(10000, 99999))
@@ -77,62 +96,46 @@ class Attachment:
         # Format date as YYYY-MM-DD
         date_str = self.email_date.strftime('%Y-%m-%d')
         
-        # Get file extension
-        ext = self.extension
+        # Ensure extension starts with a dot
+        ext = self.extension if self.extension.startswith('.') else f'.{self.extension}'
         
         return f"{date_str}_{safe_email}_{random_suffix}{ext}"
     
-    def save(self, base_dir: Union[str, Path]) -> Path:
+    def save(self, save_dir: Union[str, Path]) -> Path:
         """Save the attachment to disk.
         
         Args:
-            base_dir: Base directory to save attachments
+            save_dir: Directory to save the attachment in (should be the sender's directory)
             
         Returns:
             Path to the saved file
             
         Raises:
-            ValueError: If required fields are not set
-            OSError: If there's an error writing the file
+            ValueError: If email_date or sender_email is not set
+            OSError: If the file cannot be written
         """
         if not all([self.email_date, self.sender_email]):
             raise ValueError("email_date and sender_email must be set before saving")
+            
+        # Ensure save_dir is a Path object
+        save_dir = Path(save_dir)
+        save_dir.mkdir(parents=True, exist_ok=True)
         
-        # Sanitize sender email for directory name
-        safe_sender = (
-            self.sender_email
-            .replace('@', '_')  # Replace @ with single underscore
-            .replace('.', '_')
-            .replace('+', '_')
-        )
-        
-        # Create sender directory
-        sender_dir = Path(base_dir) / safe_sender
-        sender_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Generate safe filename
+        # Generate the filename
         filename = self.safe_filename
-        filepath = sender_dir / filename
+        filepath = save_dir / filename
         
         # Handle filename collisions
         counter = 1
         while filepath.exists():
-            # If file exists, add a counter before the extension
-            name_parts = filepath.stem.rsplit('_', 1)
-            if len(name_parts) > 1 and name_parts[1].isdigit():
-                # If filename already has a counter, increment it
-                base_name = name_parts[0]
-                counter = int(name_parts[1]) + 1
+            # If file exists, try appending a counter before the extension
+            name_parts = filename.rsplit('.', 1)
+            if len(name_parts) > 1:
+                new_name = f"{name_parts[0]}_{counter}.{name_parts[1]}"
             else:
-                # Otherwise add a counter
-                base_name = filepath.stem
-                
-            new_filename = f"{base_name}_{counter}{filepath.suffix}"
-            filepath = filepath.with_name(new_filename)
+                new_name = f"{filename}_{counter}"
+            filepath = save_dir / new_name
             counter += 1
-        
-        # Ensure parent directory exists
-        filepath.parent.mkdir(parents=True, exist_ok=True)
         
         # Write the file
         with open(filepath, 'wb') as f:

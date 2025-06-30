@@ -1,5 +1,7 @@
 """Handles saving and managing email attachments."""
 import logging
+import os
+import re
 import shutil
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -60,17 +62,20 @@ class AttachmentHandler:
         logger.info("Saving %d attachments for message: %s", 
                    len(message.attachments), message.message_id)
         
+        # Ensure the base directory exists
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+        
         for attachment in message.attachments:
             try:
-                # Set metadata from message
-                attachment.email_date = message.date
-                attachment.sender_email = message.sender_email
+                # Set message context on attachment
                 attachment.message_id = message.message_id
+                attachment.email_date = message.date
+                attachment.sender_email = message.from_addr
                 
-                # Determine if we should save to temp dir (for files without extensions)
-                save_dir = self.temp_dir if (self.post_process and not attachment.has_extension()) else self.base_dir
+                # Get the save directory for this sender
+                save_dir = self.get_attachment_dir(attachment.sender_email)
                 
-                # Save the attachment
+                # Save the attachment to the sender's directory
                 saved_path = attachment.save(save_dir)
                 saved_paths.append(saved_path)
                 logger.debug("Saved attachment: %s -> %s", 
@@ -146,19 +151,32 @@ class AttachmentHandler:
         """Get the directory path for a sender's attachments.
         
         Args:
-            sender_email: The sender's email address
+            sender_email: The sender's email address (can be in format "Name <email@example.com>")
             
         Returns:
-            Path to the sender's attachment directory
+            Path to the sender's attachment directory under base_dir
         """
-        # Sanitize the email for use in a filename
+        # Extract email from format: "John Doe <john@example.com>"
+        email_match = re.search(r'<([^>]+)>', sender_email)
+        if email_match:
+            sender = email_match.group(1)  # Extract email from <>
+        else:
+            sender = sender_email  # Use as is if no <>
+            
+        # Sanitize sender email for directory name
         safe_email = (
-            sender_email
-            .replace('@', '_')  # Replace @ with single underscore
+            sender
+            .replace('@', '_')
             .replace('.', '_')
             .replace('+', '_')
+            .lower()
         )
-        return self.base_dir / safe_email
+            
+        # Create sender's directory directly under base_dir
+        sender_dir = self.base_dir / safe_email
+        sender_dir.mkdir(parents=True, exist_ok=True)
+            
+        return sender_dir
     
     def list_attachments(self, sender_email: Optional[str] = None) -> List[Path]:
         """List all saved attachments, optionally filtered by sender.
@@ -170,10 +188,15 @@ class AttachmentHandler:
             List of paths to attachments
         """
         if sender_email:
-            dir_path = self.get_attachment_dir(sender_email)
-            if not dir_path.exists():
+            # List attachments for a specific sender
+            sender_dir = self.get_attachment_dir(sender_email)
+            if not sender_dir.exists():
                 return []
-            return list(dir_path.glob('*'))
+            return list(sender_dir.glob('*'))
         
-        # Return all attachments from all senders
-        return list(self.base_dir.glob('*/*'))
+        # List all attachments from all senders
+        attachments = []
+        for sender_dir in self.base_dir.glob('*'):
+            if sender_dir.is_dir() and sender_dir.name != 'temp':
+                attachments.extend(sender_dir.glob('*'))
+        return attachments

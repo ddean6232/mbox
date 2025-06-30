@@ -36,7 +36,11 @@ class Config:
 
     @property
     def attachments_dir(self) -> Path:
-        """Get the absolute path to the attachments directory."""
+        """Get the absolute path to the attachments directory.
+        
+        Returns:
+            Path to the attachments directory under the output directory
+        """
         return self.output_dir / "attachments"
         
     @property

@@ -277,6 +277,19 @@ class MboxProcessor:
         Returns:
             EmailMessage object
         """
+        # Parse the message date from headers if available
+        email_date = None
+        if 'Date' in parsed.get('headers', {}):
+            try:
+                from email.utils import parsedate_to_datetime
+                email_date = parsedate_to_datetime(parsed['headers']['Date'])
+            except (ValueError, TypeError):
+                pass
+        
+        # Fall back to current time if date parsing fails
+        if email_date is None:
+            email_date = datetime.utcnow()
+        
         # Create attachments
         attachments = []
         for att in parsed.get('attachments', []):
@@ -284,9 +297,12 @@ class MboxProcessor:
                 content_id=att.get('content_id', ''),
                 filename=att['filename'],
                 content_type=att['content_type'],
-                content_disposition=att['content_disposition'],
+                content_disposition=att.get('content_disposition', ''),
                 payload=att['payload'],
-                size=att['size']
+                size=att['size'],
+                email_date=email_date,
+                sender_email=parsed['from_addr'],
+                message_id=parsed.get('message_id', '')
             )
             attachments.append(attachment)
         
@@ -296,7 +312,7 @@ class MboxProcessor:
             from_addr=parsed['from_addr'],
             to_addrs=parsed['to_addrs'],
             subject=parsed['subject'],
-            date=datetime.utcnow(),  # TODO: Parse date from headers
+            date=email_date,
             raw_message=raw_message.as_string(),
             cc_addrs=parsed.get('cc_addrs', []),
             bcc_addrs=parsed.get('bcc_addrs', []),

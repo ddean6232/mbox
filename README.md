@@ -112,22 +112,51 @@ mbox-processor Inbox.mbox --Pp --keep-temp
 └── output.mbox                     # Processed MBOX file with attachment notices
 ```
 
+### Directory Structure Details
+
+- **Base Directory**: `{output_dir}/attachments/`
+  - All attachments are stored under this directory
+  - Example: If `--output-dir /mnt/My2TB1/mbox` is used, attachments go to `/mnt/My2TB1/mbox/attachments/`
+
+- **Sender Directories**: 
+  - Each sender gets their own subdirectory under `attachments/`
+  - Directory name is the sender's email with special characters replaced by `_`
+  - Example: `john.doe+test@example.com` → `john_doe_test_example_com`
+
+- **Temporary Files**:
+  - Stored in `attachments/temp/{sender_dir}/` when `--Pp` is used
+  - Only kept if `--keep-temp` flag is provided
+
 ### Attachment Naming and Processing
 
 #### Naming Convention
 
-- **Folder Name**: Sender's email with special characters replaced
-  - Example: `john_doe_example_com`
-  - All special characters including `.`, `@`, and `+` are replaced with `_`
-  - Example: `john.doe+test@example.com` becomes `john_doe_test_example_com`
-
 - **File Name Format**: `{YYYY-MM-DD}_{sanitized_sender_email}_{random_5_digits}.{ext}`
-  - `YYYY-MM-DD`: Date email was received
+  - `YYYY-MM-DD`: Date the original email was sent (from the email's Date header)
   - `sanitized_sender_email`: Sender's email with special characters replaced by `_`
+    - Example: `john.doe+test@example.com` → `john_doe_test_example_com`
   - `random_5_digits`: Random number between 10000-99999 (ensures uniqueness)
-  - `ext`: Original file extension (in lowercase)
+  - `ext`: File extension in lowercase (e.g., `.pdf`, `.jpg`)
 
-Example: `2025-06-30_john_doe_example_com_12345.pdf`
+**Example**: `2025-06-30_john_doe_example_com_12345.pdf`
+
+#### Processing Details
+
+1. **Email Parsing**:
+   - Extracts sender email from `From` header
+   - Handles both simple (`user@example.com`) and formatted (`"John Doe" <user@example.com>`) addresses
+   - Uses the email's `Date` header for consistent timestamps
+
+2. **File Handling**:
+   - Preserves original file extensions when available
+   - Converts extensions to lowercase
+   - Handles duplicate filenames by appending a counter
+   - Maintains file permissions and timestamps from the original email
+
+3. **Error Handling**:
+   - Skips attachments that can't be saved
+   - Logs detailed error messages
+   - Continues processing remaining messages
 
 #### Post-Processing
 
@@ -140,6 +169,43 @@ When the `--Pp` flag is used, the processor will:
 5. Keep files with unknown types in the temp directory
 
 **Note**: The temporary directory is automatically cleaned up unless the `--keep-temp` flag is used.
+
+### Example Commands
+
+```bash
+# Basic processing with default output directory
+python -m mbox_processor Inbox.mbox
+
+# Process with custom output directory and post-processing
+python -m mbox_processor Inbox.mbox -o /mnt/My2TB1/mbox --Pp
+
+# Keep temporary files for debugging
+python -m mbox_processor Inbox.mbox -o /mnt/My2TB1/mbox --Pp --keep-temp
+
+# Process with verbose output
+python -m mbox_processor Inbox.mbox -o /mnt/My2TB1/mbox --Pp --keep-temp -v
+```
+
+### Troubleshooting
+
+1. **Missing Files**:
+   - Check the log file for any errors
+   - Verify the sender's email format in the MBOX file
+   - Ensure the output directory has write permissions
+
+2. **File Naming Issues**:
+   - Verify the email's Date header is properly formatted
+   - Check for special characters in the sender's email
+
+3. **Performance**:
+   - For large MBOX files, processing may take time
+   - Monitor disk space in the output directory
+   - Use `--max-messages` for testing with a subset of messages
+
+4. **Post-Processing**:
+   - Ensure `python-magic` is installed correctly
+   - Check system logs for any library-related errors
+   - Use `--keep-temp` to preserve files that couldn't be processed
 
 ## Development
 
